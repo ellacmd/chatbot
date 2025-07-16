@@ -4,15 +4,26 @@ import { FaArrowUp, FaMicrophone } from 'react-icons/fa6';
 import { FaRegStopCircle } from 'react-icons/fa';
 import { useState, useEffect, useRef } from 'react';
 import { HiSpeakerWave } from 'react-icons/hi2';
-import { predefinedResponses, fallbackResponses } from '../constants';
+import {
+    predefinedResponses,
+    fallbackResponses,
+    suggestedQuestions,
+} from '../constants';
+import { languages, translations } from '../constants/languages';
 import Fuse from 'fuse.js';
+import ReactMarkdown from 'react-markdown';
+import Feedback from './Feedback';
+import AnalyticsService from '../services/analytics';
 
 interface ChatBotProps {
     closeChatBot: () => void;
 }
+
 interface Message {
     sender: 'user' | 'ai';
     text: string;
+    timestamp: Date;
+    feedback?: boolean;
 }
 
 const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
@@ -24,21 +35,38 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
     const [currentlySpeakingId, setCurrentlySpeakingId] = useState<
         number | null
     >(null);
+    const [showTypingIndicator, setShowTypingIndicator] =
+        useState<boolean>(false);
+    const [selectedLanguage, setSelectedLanguage] = useState<string>('en');
+    const [showLanguageSelector, setShowLanguageSelector] =
+        useState<boolean>(false);
 
     const lastMessageRef = useRef<HTMLDivElement | null>(null);
     const recognitionRef = useRef<any>(null);
+    const typingTimeoutRef = useRef<NodeJS.Timeout>();
 
     const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    const analyticsService = AnalyticsService.getInstance();
 
     useEffect(() => {
         const savedMessages = localStorage.getItem('chatMessages');
+        const savedLanguage = localStorage.getItem('selectedLanguage');
+        if (savedLanguage) {
+            setSelectedLanguage(savedLanguage);
+        }
         if (savedMessages) {
-            setMessages(JSON.parse(savedMessages));
+            // Convert string dates back to Date objects
+            const parsedMessages = JSON.parse(savedMessages).map((msg: any) => ({
+                ...msg,
+                timestamp: new Date(msg.timestamp)
+            }));
+            setMessages(parsedMessages);
         } else {
             setMessages([
                 {
                     sender: 'ai',
-                    text: "Hello! I'm  your personal assistant. Feel free to ask me about Emmanuella's work or programming tips. What can I help you with today?",
+                    text: translations[selectedLanguage as keyof typeof translations].welcome,
+                    timestamp: new Date(),
                 },
             ]);
         }
@@ -49,6 +77,10 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
             localStorage.setItem('chatMessages', JSON.stringify(messages));
         }
     }, [messages]);
+
+    useEffect(() => {
+        localStorage.setItem('selectedLanguage', selectedLanguage);
+    }, [selectedLanguage]);
 
     useEffect(() => {
         lastMessageRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -67,7 +99,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
             window.webkitSpeechRecognition)();
 
         if (recognitionRef.current) {
-            recognitionRef.current.lang = 'en-US';
+            recognitionRef.current.lang = selectedLanguage;
             recognitionRef.current.continuous = false;
             recognitionRef.current.interimResults = false;
 
@@ -88,7 +120,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                 setIsListening(false);
             };
         }
-    }, []);
+    }, [selectedLanguage]);
 
     const fuse = new Fuse(
         Object.keys(predefinedResponses).map((question) => ({
@@ -109,25 +141,34 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
         if (!userInput.trim()) return;
         setError('');
 
+        const startTime = Date.now();
         const formattedInput =
             userInput.charAt(0).toUpperCase() +
             userInput.slice(1).toLowerCase();
-
         setUserInput('');
         setIsLoading(true);
+        setShowTypingIndicator(true);
 
         setMessages((prevMessages) => [
             ...prevMessages,
-            { sender: 'user', text: formattedInput },
+            { sender: 'user', text: formattedInput, timestamp: new Date() },
         ]);
 
         const answer = findAnswer(userInput);
         if (answer) {
-            setMessages((prevMessages) => [
-                ...prevMessages,
-                { sender: 'ai', text: answer },
-            ]);
-            setIsLoading(false);
+            // Simulate typing delay
+            typingTimeoutRef.current = setTimeout(() => {
+                setMessages((prevMessages) => [
+                    ...prevMessages,
+                    { sender: 'ai', text: answer, timestamp: new Date() },
+                ]);
+                setShowTypingIndicator(false);
+                setIsLoading(false);
+                analyticsService.recordMessage(
+                    selectedLanguage,
+                    Date.now() - startTime
+                );
+            }, 1000);
             return;
         }
 
@@ -154,11 +195,9 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                         messages: [
                             {
                                 role: 'system',
-                                content: `You are an AI assistant that provides detailed answers about Emmanuella and programming.Emmanuella is a skilled frontend developer specializing in React, Angular, TypeScript, and modern web technologies. She has built projects like an admin panel in Angular and a React-based portfolio.She loves to play chess and CODM in her spare time. she has worked with startups around the globe
-                                When answering, provide clear, structured, and informative responses. If a question is unrelated, politely redirect to relevant topics.`,
+                                content: `You are an AI assistant that provides detailed answers about Emmanuella and programming. Emmanuella is a skilled frontend developer specializing in React, Angular, TypeScript, and modern web technologies. She has built projects like an admin panel in Angular and a React-based portfolio. She loves to play chess and CODM in her spare time. She has worked with startups around the globe. When answering, provide clear, structured, and informative responses. If a question is unrelated, politely redirect to relevant topics.`,
                             },
                             ...conversationHistory,
-
                             { role: 'user', content: userInput },
                         ],
                         max_tokens: 150,
@@ -176,13 +215,26 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                   ]
                 : aiMessage;
 
-            setMessages((prevMessages) => [
-                ...prevMessages,
-                { sender: 'ai', text: finalResponse },
-            ]);
+            // Simulate typing delay
+            typingTimeoutRef.current = setTimeout(() => {
+                setMessages((prevMessages) => [
+                    ...prevMessages,
+                    {
+                        sender: 'ai',
+                        text: finalResponse,
+                        timestamp: new Date(),
+                    },
+                ]);
+                setShowTypingIndicator(false);
+                setIsLoading(false);
+                analyticsService.recordMessage(
+                    selectedLanguage,
+                    Date.now() - startTime
+                );
+            }, 1000);
         } catch (error) {
             setError(`Error fetching AI response, ${error}`);
-        } finally {
+            setShowTypingIndicator(false);
             setIsLoading(false);
         }
     };
@@ -211,7 +263,6 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
 
         if (currentlySpeakingId !== null) {
             window.speechSynthesis.cancel();
-
             setCurrentlySpeakingId(null);
             setTimeout(() => {
                 speakText(text, messageId);
@@ -249,85 +300,297 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
         setCurrentlySpeakingId(messageId);
     };
 
+    const formatTimestamp = (date: Date): string => {
+        try {
+            return new Intl.DateTimeFormat('en-US', {
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: true,
+            }).format(new Date(date));
+        } catch (error) {
+            console.error('Error formatting timestamp:', error);
+            return '';
+        }
+    };
+
+    const handleSuggestedQuestion = (question: string): void => {
+        setUserInput(question);
+        handleSendMessage();
+    };
+
+    const handleFeedback = (messageId: number, isHelpful: boolean) => {
+        setMessages((prevMessages) =>
+            prevMessages.map((msg, index) =>
+                index === messageId ? { ...msg, feedback: isHelpful } : msg
+            )
+        );
+
+        analyticsService.recordFeedback({
+            messageId,
+            isHelpful,
+            timestamp: new Date(),
+            language: selectedLanguage,
+        });
+    };
+
+    const handleLanguageChange = (languageCode: string) => {
+        setSelectedLanguage(languageCode);
+        setShowLanguageSelector(false);
+    };
+
     return (
-        <div className='right-6 w-100 h-[90vh] rounded-b-xl  shadow-lg flex flex-col relative '>
-            <div className='flex justify-between bg-[#FF4081] text-white p-6 rounded-t-xl'>
-                <FaRobot />
-
-                <h1>EllaGPT</h1>
-
-                <button onClick={closeChatBot} className='cursor-pointer'>
-                    {' '}
-                    <IoMdClose />
-                </button>
+        <div className='fixed bottom-6 right-8 w-96 h-[600px] bg-white rounded-lg shadow-lg flex flex-col'>
+            <div className='bg-[#FF4081] text-white p-4 rounded-t-lg flex justify-between items-center'>
+                <div className='flex items-center gap-2'>
+                    <FaRobot className='w-6 h-6' />
+                    <h2 className='text-lg font-semibold'>
+                        Portfolio Assistant
+                    </h2>
+                </div>
+                <div className='flex items-center gap-2'>
+                    <button
+                        onClick={() =>
+                            setShowLanguageSelector(!showLanguageSelector)
+                        }
+                        className='hover:opacity-80'>
+                        {
+                            languages.find(
+                                (lang) => lang.code === selectedLanguage
+                            )?.flag
+                        }
+                    </button>
+                    <button onClick={closeChatBot} className='hover:opacity-80'>
+                        <IoMdClose className='w-6 h-6' />
+                    </button>
+                </div>
             </div>
-            <div className='  p-6 bg-[#F3E5F5] overflow-scroll flex-1 rounded-b-xl  space-y-4 mb-14'>
+
+            {showLanguageSelector && (
+                <div className='absolute top-12 right-4 bg-white rounded-lg shadow-lg p-2 z-10'>
+                    {languages.map((language) => (
+                        <button
+                            key={language.code}
+                            onClick={() => handleLanguageChange(language.code)}
+                            className={`flex items-center gap-2 w-full p-2 rounded hover:bg-gray-100 ${
+                                selectedLanguage === language.code
+                                    ? 'bg-gray-100'
+                                    : ''
+                            }`}>
+                            <span>{language.flag}</span>
+                            <span>{language.name}</span>
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            <div className='flex-1 overflow-y-auto p-4 space-y-4'>
                 {messages.map((message, index) => (
-                    <div key={index} className='flex flex-col'>
+                    <div
+                        key={index}
+                        className={`flex ${
+                            message.sender === 'user'
+                                ? 'justify-end'
+                                : 'justify-start'
+                        }`}>
                         <div
-                            className={`chat-bubble-${message.sender} ${
+                            className={`max-w-[80%] rounded-lg p-3 ${
                                 message.sender === 'user'
-                                    ? 'bg-[#FF4081] text-white self-end'
-                                    : 'bg-[#aaaaaa] text-white self-start'
-                            } px-2 py-1 rounded-xl max-w-[90%]`}>
-                            <p>{message.text}</p>
-                            {message.sender !== 'user' && (
-                                <button
-                                    className='cursor-pointer'
-                                    onClick={() =>
-                                        handleSpeaking(message.text, index)
-                                    }>
-                                    {currentlySpeakingId === index ? (
-                                        <FaRegStopCircle fill='#FF4081' />
-                                    ) : (
-                                        <HiSpeakerWave fill='#FF4081' />
-                                    )}
-                                </button>
+                                    ? 'bg-[#FF4081] text-white'
+                                    : 'bg-gray-100 text-gray-800'
+                            }`}>
+                            <ReactMarkdown
+                                components={{
+                                    p: ({ node, ...props }) => (
+                                        <p
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    ul: ({ node, ...props }) => (
+                                        <ul
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    ol: ({ node, ...props }) => (
+                                        <ol
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    li: ({ node, ...props }) => (
+                                        <li
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    h1: ({ node, ...props }) => (
+                                        <h1
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    h2: ({ node, ...props }) => (
+                                        <h2
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    h3: ({ node, ...props }) => (
+                                        <h3
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    h4: ({ node, ...props }) => (
+                                        <h4
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    h5: ({ node, ...props }) => (
+                                        <h5
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    h6: ({ node, ...props }) => (
+                                        <h6
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    a: ({ node, ...props }) => (
+                                        <a
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    blockquote: ({ node, ...props }) => (
+                                        <blockquote
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    code: ({ node, ...props }) => (
+                                        <code
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                    pre: ({ node, ...props }) => (
+                                        <pre
+                                            className='prose prose-sm'
+                                            {...props}
+                                        />
+                                    ),
+                                }}>
+                                {message.text}
+                            </ReactMarkdown>
+                            <div className='flex items-center justify-between mt-2 text-xs opacity-70'>
+                                <span>
+                                    {formatTimestamp(message.timestamp)}
+                                </span>
+                                {message.sender === 'ai' && (
+                                    <button
+                                        onClick={() =>
+                                            handleSpeaking(message.text, index)
+                                        }
+                                        className='ml-2 hover:opacity-80'>
+                                        {currentlySpeakingId === index ? (
+                                            <FaRegStopCircle className='w-4 h-4' />
+                                        ) : (
+                                            <HiSpeakerWave className='w-4 h-4' />
+                                        )}
+                                    </button>
+                                )}
+                            </div>
+                            {message.sender === 'ai' && (
+                                <Feedback
+                                    messageId={index}
+                                    onFeedback={handleFeedback}
+                                    language={selectedLanguage}
+                                />
                             )}
                         </div>
                     </div>
                 ))}
-                {isLoading && (
-                    <div className='chat-bubble-bot bg-[#aaaaaa] text-white px-2 py-1 rounded-xl max-w-[70%] self-start'>
-                        <div className='animate-pulse'>
-                            <span className=' w-2 h-2 bg-white rounded-full inline-block mr-1'></span>
-                            <span className=' w-2 h-2 bg-white rounded-full inline-block mr-1'></span>
-                            <span className=' w-2 h-2 bg-white rounded-full inline-block'></span>
+                {showTypingIndicator && (
+                    <div className='flex justify-start'>
+                        <div className='bg-gray-100 rounded-lg p-3'>
+                            <div className='flex space-x-2'>
+                                <div className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' />
+                                <div className='w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100' />
+                                <div className='w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200' />
+                            </div>
                         </div>
                     </div>
-                )}{' '}
-                {error && <code className='text-red-400'>{error}</code>}
+                )}
                 <div ref={lastMessageRef} />
             </div>
-            <div className='flex items-center space-x-3 mt-4  fixed bottom-6 bg-[#aaaaaa] w-100 py-2 px-4'>
-                <input
-                    type='text'
-                    placeholder='Ask me anything!'
-                    className=' w-full bg-[#F3E5F5] p-3 rounded-xl border border-gray-300 text-sm focus:outline-none'
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        setUserInput(e.target.value);
-                    }}
-                    value={userInput}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleSendMessage();
+
+            {messages.length === 1 && (
+                <div className='p-4 border-t'>
+                    <h3 className='text-sm font-semibold mb-2'>
+                        {
+                            translations[
+                                selectedLanguage as keyof typeof translations
+                            ].suggestedQuestions
                         }
-                    }}
-                />{' '}
-                <button
-                    className={`p-3 rounded-full text-white ${
-                        isListening ? 'bg-green-500' : 'bg-gray-500'
-                    } cursor-pointer`}
-                    onClick={handleListening}>
-                    <FaMicrophone />
-                </button>
-                <button
-                    className='bg-[#FF4081] rounded-full p-3 text-white cursor-pointer disabled:cursor-not-allowed disabled:bg-[#ff85ae]'
-                    disabled={!userInput || isLoading}
-                    onClick={handleSendMessage}>
-                    <FaArrowUp />
-                </button>
+                        :
+                    </h3>
+                    <div className='flex flex-wrap gap-2'>
+                        {suggestedQuestions.map((question, index) => (
+                            <button
+                                key={index}
+                                onClick={() =>
+                                    handleSuggestedQuestion(question)
+                                }
+                                className='text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded-full transition-colors'>
+                                {question}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            <div className='p-4 border-t'>
+                <div className='flex items-center gap-2'>
+                    <input
+                        type='text'
+                        value={userInput}
+                        onChange={(e) => setUserInput(e.target.value)}
+                        onKeyPress={(e) =>
+                            e.key === 'Enter' && handleSendMessage()
+                        }
+                        placeholder={
+                            translations[
+                                selectedLanguage as keyof typeof translations
+                            ].typeMessage
+                        }
+                        className='flex-1 p-2 border rounded-lg focus:outline-none focus:border-[#FF4081]'
+                    />
+                    <button
+                        onClick={handleListening}
+                        className={`p-2 rounded-lg ${
+                            isListening
+                                ? 'bg-red-500 text-white'
+                                : 'bg-gray-100 text-gray-600'
+                        }`}>
+                        {isListening ? (
+                            <FaRegStopCircle className='w-5 h-5' />
+                        ) : (
+                            <FaMicrophone className='w-5 h-5' />
+                        )}
+                    </button>
+                    <button
+                        onClick={handleSendMessage}
+                        disabled={isLoading || !userInput.trim()}
+                        className='p-2 bg-[#FF4081] text-white rounded-lg hover:opacity-90 disabled:opacity-50'>
+                        <FaArrowUp className='w-5 h-5' />
+                    </button>
+                </div>
+                {error && <p className='text-red-500 text-sm mt-2'>{error}</p>}
             </div>
         </div>
     );
