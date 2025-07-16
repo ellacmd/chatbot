@@ -9,7 +9,7 @@ import {
     fallbackResponses,
     suggestedQuestions,
 } from '../constants';
-import { languages, translations } from '../constants/languages';
+
 import Fuse from 'fuse.js';
 import ReactMarkdown from 'react-markdown';
 import Feedback from './Feedback';
@@ -38,9 +38,6 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
     >(null);
     const [showTypingIndicator, setShowTypingIndicator] =
         useState<boolean>(false);
-    const [selectedLanguage, setSelectedLanguage] = useState<string>('en');
-    const [showLanguageSelector, setShowLanguageSelector] =
-        useState<boolean>(false);
 
     const lastMessageRef = useRef<HTMLDivElement | null>(null);
     const recognitionRef = useRef<any>(null);
@@ -50,10 +47,6 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
 
     useEffect(() => {
         const savedMessages = localStorage.getItem('chatMessages');
-        const savedLanguage = localStorage.getItem('selectedLanguage');
-        if (savedLanguage) {
-            setSelectedLanguage(savedLanguage);
-        }
         if (savedMessages) {
             // Convert string dates back to Date objects
             const parsedMessages = JSON.parse(savedMessages).map(
@@ -67,9 +60,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
             setMessages([
                 {
                     sender: 'ai',
-                    text: translations[
-                        selectedLanguage as keyof typeof translations
-                    ].welcome,
+                    text: "Hello! I'm your personal assistant. Feel free to ask me about Emmanuella's work or programming tips. What can I help you with today?",
                     timestamp: new Date(),
                 },
             ]);
@@ -83,12 +74,32 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
     }, [messages]);
 
     useEffect(() => {
-        localStorage.setItem('selectedLanguage', selectedLanguage);
-    }, [selectedLanguage]);
-
-    useEffect(() => {
         lastMessageRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    // Load voices when component mounts
+    useEffect(() => {
+        const loadVoices = () => {
+            const voices = window.speechSynthesis.getVoices();
+            console.log(
+                'Available voices:',
+                voices.map((v) => v.name)
+            );
+        };
+
+        // Load voices immediately if available
+        loadVoices();
+
+        // Also listen for voiceschanged event
+        window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+
+        return () => {
+            window.speechSynthesis.removeEventListener(
+                'voiceschanged',
+                loadVoices
+            );
+        };
+    }, []);
 
     useEffect(() => {
         if (
@@ -103,7 +114,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
             window.webkitSpeechRecognition)();
 
         if (recognitionRef.current) {
-            recognitionRef.current.lang = selectedLanguage;
+            recognitionRef.current.lang = 'en-US';
             recognitionRef.current.continuous = false;
             recognitionRef.current.interimResults = false;
 
@@ -124,7 +135,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                 setIsListening(false);
             };
         }
-    }, [selectedLanguage]);
+    }, []);
 
     const fuse = new Fuse(
         Object.keys(predefinedResponses).map((question) => ({
@@ -168,10 +179,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                 ]);
                 setShowTypingIndicator(false);
                 setIsLoading(false);
-                analyticsService.recordMessage(
-                    selectedLanguage,
-                    Date.now() - startTime
-                );
+                analyticsService.recordMessage('en', Date.now() - startTime);
             }, 1000);
             return;
         }
@@ -209,10 +217,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                 ]);
                 setShowTypingIndicator(false);
                 setIsLoading(false);
-                analyticsService.recordMessage(
-                    selectedLanguage,
-                    Date.now() - startTime
-                );
+                analyticsService.recordMessage('en', Date.now() - startTime);
             }, 1000);
         } catch (error) {
             setError(`Error fetching AI response, ${error}`);
@@ -258,17 +263,45 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
     const speakText = (text: string, messageId: number) => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'en-US';
-        utterance.rate = 1;
-        utterance.pitch = 1;
+        utterance.rate = 0.9;
+        utterance.pitch = 1.2;
         utterance.volume = 1;
 
-        const voices = window.speechSynthesis.getVoices();
-        const femaleVoice = voices.find(
-            (voice) =>
-                voice.name.includes('Female') ||
-                voice.name.includes('Google US English')
-        );
-        utterance.voice = femaleVoice || voices[0];
+        const getFemaleVoice = () => {
+            const voices = window.speechSynthesis.getVoices();
+
+            // More comprehensive female voice detection
+            return voices.find(
+                (voice) =>
+                    voice.name.includes('Samantha') ||
+                    voice.name.includes('Victoria') ||
+                    voice.name.includes('Karen') ||
+                    voice.name.includes('Tessa') ||
+                    voice.name.includes('Google UK English Female') ||
+                    voice.name.includes('Google US English Female') ||
+                    voice.name.includes('Microsoft Zira') ||
+                    voice.name.includes('Microsoft Eva') ||
+                    voice.name.includes('Microsoft Aria') ||
+                    voice.name.includes('Female') ||
+                    voice.name.toLowerCase().includes('woman') ||
+                    voice.name.toLowerCase().includes('girl') ||
+                    (voice.name.includes('Alex') &&
+                        voice.name.includes('Female')) ||
+                    voice.name.includes('Siri') ||
+                    voice.name.includes('Cortana')
+            );
+        };
+
+        const femaleVoice = getFemaleVoice();
+
+        if (femaleVoice) {
+            utterance.voice = femaleVoice;
+            console.log('Using female voice:', femaleVoice.name);
+        } else {
+            // If no female voice found, try to use a higher pitch to simulate female voice
+            utterance.pitch = 1.4;
+            console.log('No female voice found, using higher pitch');
+        }
 
         utterance.onend = () => {
             setCurrentlySpeakingId(null);
@@ -311,61 +344,29 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
             messageId,
             isHelpful,
             timestamp: new Date(),
-            language: selectedLanguage,
+            language: 'en',
         });
     };
 
-    const handleLanguageChange = (languageCode: string) => {
-        setSelectedLanguage(languageCode);
-        setShowLanguageSelector(false);
-    };
-
     return (
-        <div className='fixed bottom-6 right-8 w-96 h-[600px] bg-white rounded-lg shadow-lg flex flex-col'>
-            <div className='bg-[#FF4081] text-white p-4 rounded-t-lg flex justify-between items-center'>
+        <div className='fixed bottom-4 right-4 left-4 md:left-auto md:w-96 md:right-8 h-[80vh] md:h-[600px] bg-white rounded-lg shadow-lg flex flex-col z-50'>
+            <div className='bg-[#FF4081] text-white p-3 md:p-4 rounded-t-lg flex justify-between items-center'>
                 <div className='flex items-center gap-2'>
-                    <FaRobot className='w-6 h-6' />
-                    <h2 className='text-lg font-semibold'>
+                    <FaRobot className='w-5 h-5 md:w-6 md:h-6' />
+                    <h2 className='text-base md:text-lg font-semibold'>
                         Portfolio Assistant
                     </h2>
                 </div>
                 <div className='flex items-center gap-2'>
                     <button
-                        onClick={() =>
-                            setShowLanguageSelector(!showLanguageSelector)
-                        }
-                        className='hover:opacity-80'>
-                        {
-                            languages.find(
-                                (lang) => lang.code === selectedLanguage
-                            )?.flag
-                        }
-                    </button>
-                    <button onClick={closeChatBot} className='hover:opacity-80'>
-                        <IoMdClose className='w-6 h-6' />
+                        onClick={closeChatBot}
+                        className='hover:opacity-80 p-1'>
+                        <IoMdClose className='w-5 h-5 md:w-6 md:h-6' />
                     </button>
                 </div>
             </div>
 
-            {showLanguageSelector && (
-                <div className='absolute top-12 right-4 bg-white rounded-lg shadow-lg p-2 z-10'>
-                    {languages.map((language) => (
-                        <button
-                            key={language.code}
-                            onClick={() => handleLanguageChange(language.code)}
-                            className={`flex items-center gap-2 w-full p-2 rounded hover:bg-gray-100 ${
-                                selectedLanguage === language.code
-                                    ? 'bg-gray-100'
-                                    : ''
-                            }`}>
-                            <span>{language.flag}</span>
-                            <span>{language.name}</span>
-                        </button>
-                    ))}
-                </div>
-            )}
-
-            <div className='flex-1 overflow-y-auto p-4 space-y-4'>
+            <div className='flex-1 overflow-y-auto p-3 md:p-4 space-y-3 md:space-y-4'>
                 {messages.map((message, index) => (
                     <div
                         key={index}
@@ -375,7 +376,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                                 : 'justify-start'
                         }`}>
                         <div
-                            className={`max-w-[80%] rounded-lg p-3 ${
+                            className={`max-w-[85%] md:max-w-[80%] rounded-lg p-2 md:p-3 ${
                                 message.sender === 'user'
                                     ? 'bg-[#FF4081] text-white'
                                     : 'bg-gray-100 text-gray-800'
@@ -470,7 +471,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                                 {message.text}
                             </ReactMarkdown>
                             <div className='flex items-center justify-between mt-2 text-xs opacity-70'>
-                                <span>
+                                <span className='text-xs'>
                                     {formatTimestamp(message.timestamp)}
                                 </span>
                                 {message.sender === 'ai' && (
@@ -478,11 +479,11 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                                         onClick={() =>
                                             handleSpeaking(message.text, index)
                                         }
-                                        className='ml-2 hover:opacity-80'>
+                                        className='ml-2 hover:opacity-80 p-1'>
                                         {currentlySpeakingId === index ? (
-                                            <FaRegStopCircle className='w-4 h-4' />
+                                            <FaRegStopCircle className='w-3 h-3 md:w-4 md:h-4' />
                                         ) : (
-                                            <HiSpeakerWave className='w-4 h-4' />
+                                            <HiSpeakerWave className='w-3 h-3 md:w-4 md:h-4' />
                                         )}
                                     </button>
                                 )}
@@ -491,7 +492,6 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                                 <Feedback
                                     messageId={index}
                                     onFeedback={handleFeedback}
-                                    language={selectedLanguage}
                                 />
                             )}
                         </div>
@@ -499,11 +499,11 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                 ))}
                 {showTypingIndicator && (
                     <div className='flex justify-start'>
-                        <div className='bg-gray-100 rounded-lg p-3'>
-                            <div className='flex space-x-2'>
-                                <div className='w-2 h-2 bg-gray-400 rounded-full animate-bounce' />
-                                <div className='w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100' />
-                                <div className='w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200' />
+                        <div className='bg-gray-100 rounded-lg p-2 md:p-3'>
+                            <div className='flex space-x-1 md:space-x-2'>
+                                <div className='w-1.5 h-1.5 md:w-2 md:h-2 bg-gray-400 rounded-full animate-bounce' />
+                                <div className='w-1.5 h-1.5 md:w-2 md:h-2 bg-gray-400 rounded-full animate-bounce delay-100' />
+                                <div className='w-1.5 h-1.5 md:w-2 md:h-2 bg-gray-400 rounded-full animate-bounce delay-200' />
                             </div>
                         </div>
                     </div>
@@ -512,23 +512,18 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
             </div>
 
             {messages.length === 1 && (
-                <div className='p-4 border-t'>
-                    <h3 className='text-sm font-semibold mb-2'>
-                        {
-                            translations[
-                                selectedLanguage as keyof typeof translations
-                            ].suggestedQuestions
-                        }
-                        :
+                <div className='p-3 md:p-4 border-t'>
+                    <h3 className='text-xs md:text-sm font-semibold mb-2'>
+                        Suggested Questions:
                     </h3>
-                    <div className='flex flex-wrap gap-2'>
+                    <div className='flex flex-wrap gap-1 md:gap-2'>
                         {suggestedQuestions.map((question, index) => (
                             <button
                                 key={index}
                                 onClick={() =>
                                     handleSuggestedQuestion(question)
                                 }
-                                className='text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded-full transition-colors'>
+                                className='text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 px-2 py-1 md:px-3 rounded-full transition-colors'>
                                 {question}
                             </button>
                         ))}
@@ -536,7 +531,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                 </div>
             )}
 
-            <div className='p-4 border-t'>
+            <div className='p-3 md:p-4 border-t'>
                 <div className='flex items-center gap-2'>
                     <input
                         type='text'
@@ -545,12 +540,8 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                         onKeyPress={(e) =>
                             e.key === 'Enter' && handleSendMessage()
                         }
-                        placeholder={
-                            translations[
-                                selectedLanguage as keyof typeof translations
-                            ].typeMessage
-                        }
-                        className='flex-1 p-2 border rounded-lg focus:outline-none focus:border-[#FF4081]'
+                        placeholder='Type your message...'
+                        className='flex-1 p-2 md:p-2 text-sm md:text-base border rounded-lg focus:outline-none focus:border-[#FF4081]'
                     />
                     <button
                         onClick={handleListening}
@@ -560,19 +551,23 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
                                 : 'bg-gray-100 text-gray-600'
                         }`}>
                         {isListening ? (
-                            <FaRegStopCircle className='w-5 h-5' />
+                            <FaRegStopCircle className='w-4 h-4 md:w-5 md:h-5' />
                         ) : (
-                            <FaMicrophone className='w-5 h-5' />
+                            <FaMicrophone className='w-4 h-4 md:w-5 md:h-5' />
                         )}
                     </button>
                     <button
                         onClick={handleSendMessage}
                         disabled={isLoading || !userInput.trim()}
                         className='p-2 bg-[#FF4081] text-white rounded-lg hover:opacity-90 disabled:opacity-50'>
-                        <FaArrowUp className='w-5 h-5' />
+                        <FaArrowUp className='w-4 h-4 md:w-5 md:h-5' />
                     </button>
                 </div>
-                {error && <p className='text-red-500 text-sm mt-2'>{error}</p>}
+                {error && (
+                    <p className='text-red-500 text-xs md:text-sm mt-2'>
+                        {error}
+                    </p>
+                )}
             </div>
         </div>
     );

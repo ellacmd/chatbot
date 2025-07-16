@@ -4,7 +4,6 @@ import { FaThumbsUp, FaThumbsDown } from 'react-icons/fa';
 interface FeedbackProps {
     messageId: number;
     onFeedback: (messageId: number, isHelpful: boolean) => void;
-    language: string;
 }
 
 const Feedback: React.FC<FeedbackProps> = ({ messageId, onFeedback }) => {
@@ -28,7 +27,7 @@ const Feedback: React.FC<FeedbackProps> = ({ messageId, onFeedback }) => {
     }
 
     return (
-        <div className='flex items-center gap-2 mt-1'>
+        <div className='flex items-center gap-1 md:gap-2 mt-1'>
             <span className='text-xs text-gray-500'>Was this helpful?</span>
             <button
                 onClick={() => handleFeedback(true)}
