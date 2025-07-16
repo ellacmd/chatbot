@@ -14,6 +14,7 @@ import Fuse from 'fuse.js';
 import ReactMarkdown from 'react-markdown';
 import Feedback from './Feedback';
 import AnalyticsService from '../services/analytics';
+import openAIService from '../services/openai';
 
 interface ChatBotProps {
     closeChatBot: () => void;
@@ -45,7 +46,6 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
     const recognitionRef = useRef<any>(null);
     const typingTimeoutRef = useRef<number | null>(null);
 
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
     const analyticsService = AnalyticsService.getInstance();
 
     useEffect(() => {
@@ -177,7 +177,9 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
         }
 
         const conversationHistory = messages.map((msg) => ({
-            role: msg.sender === 'user' ? 'user' : 'assistant',
+            role: (msg.sender === 'user' ? 'user' : 'assistant') as
+                | 'user'
+                | 'assistant',
             content: msg.text,
         }));
         conversationHistory.push({
@@ -186,33 +188,9 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
         });
 
         try {
-            const response = await fetch(
-                'https://api.openai.com/v1/chat/completions',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${apiKey}`,
-                    },
-                    body: JSON.stringify({
-                        model: 'gpt-3.5-turbo',
-                        messages: [
-                            {
-                                role: 'system',
-                                content: `You are an AI assistant that provides detailed answers about Emmanuella and programming. Emmanuella is a skilled frontend developer specializing in React, Angular, TypeScript, and modern web technologies. She has built projects like an admin panel in Angular and a React-based portfolio. She loves to play chess and CODM in her spare time. She has worked with startups around the globe. When answering, provide clear, structured, and informative responses. If a question is unrelated, politely redirect to relevant topics.`,
-                            },
-                            ...conversationHistory,
-                            { role: 'user', content: userInput },
-                        ],
-                        max_tokens: 150,
-                    }),
-                }
-            );
-            const data = await response.json();
-            const aiMessage = data.choices[0].message.content.trim();
+            const { message: aiMessage, isOffTopic } =
+                await openAIService.sendMessage(conversationHistory, userInput);
 
-            const isOffTopic =
-                !aiMessage || aiMessage.toLowerCase().includes("i'm sorry");
             const finalResponse = isOffTopic
                 ? fallbackResponses[
                       Math.floor(Math.random() * fallbackResponses.length)
