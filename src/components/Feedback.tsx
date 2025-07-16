@@ -7,11 +7,7 @@ interface FeedbackProps {
     language: string;
 }
 
-const Feedback: React.FC<FeedbackProps> = ({
-    messageId,
-    onFeedback,
-    language,
-}) => {
+const Feedback: React.FC<FeedbackProps> = ({ messageId, onFeedback }) => {
     const [hasGivenFeedback, setHasGivenFeedback] = useState(false);
     const [feedback, setFeedback] = useState<'yes' | 'no' | null>(null);
 

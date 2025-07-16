@@ -43,7 +43,7 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
 
     const lastMessageRef = useRef<HTMLDivElement | null>(null);
     const recognitionRef = useRef<any>(null);
-    const typingTimeoutRef = useRef<NodeJS.Timeout>();
+    const typingTimeoutRef = useRef<number | null>(null);
 
     const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
     const analyticsService = AnalyticsService.getInstance();
@@ -56,16 +56,20 @@ const Chatbot: React.FC<ChatBotProps> = ({ closeChatBot }) => {
         }
         if (savedMessages) {
             // Convert string dates back to Date objects
-            const parsedMessages = JSON.parse(savedMessages).map((msg: any) => ({
-                ...msg,
-                timestamp: new Date(msg.timestamp)
-            }));
+            const parsedMessages = JSON.parse(savedMessages).map(
+                (msg: any) => ({
+                    ...msg,
+                    timestamp: new Date(msg.timestamp),
+                })
+            );
             setMessages(parsedMessages);
         } else {
             setMessages([
                 {
                     sender: 'ai',
-                    text: translations[selectedLanguage as keyof typeof translations].welcome,
+                    text: translations[
+                        selectedLanguage as keyof typeof translations
+                    ].welcome,
                     timestamp: new Date(),
                 },
             ]);
